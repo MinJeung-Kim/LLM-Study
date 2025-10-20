@@ -10,6 +10,8 @@ Created: 2025-10-17
 
 from nltk.tokenize import sent_tokenize, word_tokenize
 from nltk.corpus import stopwords
+from tensorflow.keras.preprocessing.text import Tokenizer
+from tensorflow.keras.preprocessing.sequence import pad_sequences
 
 
 def preprocess_text_for_encoding(text, min_word_length=2, language="english"):
@@ -80,66 +82,149 @@ def preprocess_text_for_encoding(text, min_word_length=2, language="english"):
     return vocab, preprocessed_sentences
 
 
-def create_word_to_index_mapping(vocab, max_vocab_size=None):
+def create_tokenizer_and_sequences(
+    preprocessed_sentences, num_words=None, oov_token="<OOV>"
+):
     """
-    단어 빈도수 딕셔너리를 기반으로 단어-인덱스 매핑을 생성
+    전처리된 문장들로부터 토크나이저를 생성하고 정수 시퀀스로 변환하는 함수
 
     Parameters:
     -----------
-    vocab : dict
-        단어별 빈도수 딕셔너리
-    max_vocab_size : int, optional
-        최대 어휘 사전 크기. None이면 모든 단어 사용
+    preprocessed_sentences : list
+        전처리된 문장들의 리스트 (각 문장은 단어 리스트 또는 문자열)
+    num_words : int, optional, default=None
+        단어 집합의 최대 크기. None이면 모든 단어 사용
+    oov_token : str, default='<OOV>'
+        OOV(Out-Of-Vocabulary) 토큰 설정
 
     Returns:
     --------
-    word_to_index : dict
-        단어를 인덱스로 매핑하는 딕셔너리
-    index_to_word : dict
-        인덱스를 단어로 매핑하는 딕셔너리
+    tokenizer : Tokenizer
+        학습된 Tokenizer 객체
+    sequences : list
+        정수 시퀀스로 변환된 문장들
+
+    Example:
+    --------
+    >>> sentences = [['hello', 'world'], ['test', 'sentence']]
+    >>> tokenizer, sequences = create_tokenizer_and_sequences(sentences)
+    >>> print(sequences)
+    [[2, 3], [4, 5]]
+    >>> print(tokenizer.word_index)
+    {'<OOV>': 1, 'hello': 2, 'world': 3, 'test': 4, 'sentence': 5}
     """
-    # 빈도수 기준으로 정렬 (높은 순서)
-    sorted_vocab = sorted(vocab.items(), key=lambda x: x[1], reverse=True)
+    # 토크나이저 생성
+    tokenizer = Tokenizer(num_words=num_words, oov_token=oov_token)
 
-    # 최대 어휘 크기 제한
-    if max_vocab_size:
-        sorted_vocab = sorted_vocab[:max_vocab_size]
+    # 리스트 형태의 문장들을 문자열로 변환 (필요한 경우)
+    text_data = []
+    for sent in preprocessed_sentences:
+        if isinstance(sent, list):
+            text_data.append(" ".join(sent))
+        else:
+            text_data.append(sent)
 
-    # 매핑 딕셔너리 생성 (인덱스 1부터 시작, 0은 보통 패딩용으로 예약)
-    word_to_index = {"<PAD>": 0, "<UNK>": 1}  # 특수 토큰
-    index_to_word = {0: "<PAD>", 1: "<UNK>"}
+    # 단어 집합 구축
+    tokenizer.fit_on_texts(text_data)
 
-    for idx, (word, _) in enumerate(sorted_vocab, start=2):
-        word_to_index[word] = idx
-        index_to_word[idx] = word
+    # 문장들을 정수 시퀀스로 변환
+    sequences = tokenizer.texts_to_sequences(text_data)
 
-    return word_to_index, index_to_word
+    return tokenizer, sequences
 
 
-def encode_sentences(sentences, word_to_index):
+def create_padded_sequences(
+    sequences, maxlen=None, padding="post", truncating="post", value=0
+):
     """
-    전처리된 문장들을 정수로 인코딩
+    정수 시퀀스들을 패딩하여 동일한 길이로 만드는 함수
 
     Parameters:
     -----------
-    sentences : list
-        전처리된 문장들 (단어 리스트의 리스트)
-    word_to_index : dict
-        단어-인덱스 매핑 딕셔너리
+    sequences : list
+        정수 시퀀스들의 리스트
+    maxlen : int, optional, default=None
+        패딩 후 최대 시퀀스 길이. None이면 가장 긴 시퀀스 길이 사용
+    padding : str, default='post'
+        패딩 위치 ('pre': 앞쪽, 'post': 뒤쪽)
+    truncating : str, default='post'
+        잘라내기 위치 ('pre': 앞쪽, 'post': 뒤쪽)
+    value : int, default=0
+        패딩에 사용할 값
 
     Returns:
     --------
-    encoded_sentences : list
-        정수로 인코딩된 문장들
+    padded_sequences : numpy.ndarray
+        패딩된 시퀀스 배열
+
+    Example:
+    --------
+    >>> sequences = [[1, 2, 3], [4, 5], [6, 7, 8, 9]]
+    >>> padded = create_padded_sequences(sequences, maxlen=5)
+    >>> print(padded)
+    [[1 2 3 0 0]
+     [4 5 0 0 0]
+     [6 7 8 9 0]]
     """
-    encoded_sentences = []
+    padded_sequences = pad_sequences(
+        sequences, maxlen=maxlen, padding=padding, truncating=truncating, value=value
+    )
 
-    for sentence in sentences:
-        encoded_sentence = []
-        for word in sentence:
-            # 단어가 사전에 있으면 해당 인덱스, 없으면 <UNK> 인덱스
-            index = word_to_index.get(word, word_to_index["<UNK>"])
-            encoded_sentence.append(index)
-        encoded_sentences.append(encoded_sentence)
+    return padded_sequences
 
-    return encoded_sentences
+
+def tokenize_and_pad(
+    preprocessed_sentences,
+    num_words=None,
+    oov_token="<OOV>",
+    maxlen=None,
+    padding="post",
+    truncating="post",
+    pad_value=0,
+):
+    """
+    토크나이저 생성, 시퀀스 변환, 패딩을 한 번에 수행하는 통합 함수
+
+    Parameters:
+    -----------
+    preprocessed_sentences : list
+        전처리된 문장들의 리스트 (각 문장은 단어 리스트 또는 문자열)
+    num_words : int, optional, default=None
+        단어 집합의 최대 크기
+    oov_token : str, default='<OOV>'
+        OOV 토큰 설정
+    maxlen : int, optional, default=None
+        패딩 후 최대 시퀀스 길이
+    padding : str, default='post'
+        패딩 위치
+    truncating : str, default='post'
+        잘라내기 위치
+    pad_value : int, default=0
+        패딩에 사용할 값
+
+    Returns:
+    --------
+    tokenizer : Tokenizer
+        학습된 Tokenizer 객체
+    padded_sequences : numpy.ndarray
+        패딩된 정수 시퀀스 배열
+
+    Example:
+    --------
+    >>> sentences = [['hello', 'world'], ['test']]
+    >>> tokenizer, padded = tokenize_and_pad(sentences, maxlen=3)
+    >>> print(padded)
+    [[2 3 0]
+     [4 0 0]]
+    """
+    # 토크나이저 생성 및 시퀀스 변환
+    tokenizer, sequences = create_tokenizer_and_sequences(
+        preprocessed_sentences, num_words, oov_token
+    )
+
+    # 패딩 적용
+    padded_sequences = create_padded_sequences(
+        sequences, maxlen, padding, truncating, pad_value
+    )
+
+    return tokenizer, padded_sequences
