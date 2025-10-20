@@ -60,7 +60,7 @@ def preprocess_text_for_encoding(text, min_word_length=2, language="english"):
     # 각 문장을 처리
     for sent in sentences:
         sent = sent.lower()  # 대소문자 정규화(소문자 변환)
-        words = word_tokenize(sent)  # 단어 토큰화
+        words = word_tokenize(sent)  # 단어(공백 기준) 토큰화
 
         # 불용어 제거 및 단어 길이 필터링
         filtered_tokens = [
