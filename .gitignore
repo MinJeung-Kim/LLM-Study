@@ -1,0 +1,7 @@
+.env
+*/chroma_db/
+faiss_index.index
+__pycache__/
+.vscode/
+39venv/
+*/chroma_db_movies/
